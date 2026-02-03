@@ -5,7 +5,6 @@ import math
 import os
 import io
 import numpy as np
-import webbrowser
 import textwrap
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -32,7 +31,8 @@ from minefield_logic import (
     plot_survey_chain,
     dms_to_decimal,
     KNOWN_TANKS,
-    KNOWN_MINES
+    KNOWN_MINES,
+    validate_strip_constraints
 )
 
 # --- Login Logic & CSS ---
@@ -44,65 +44,76 @@ def get_img_as_base64(file_path):
     return base64.b64encode(data).decode()
 
 def login_page():
-    # Load Logo
-    try:
-        if os.path.exists("assets/damp_logo.jpg"):
-            img_b64 = get_img_as_base64("assets/damp_logo.jpg")
-            bg_image_css = f"""
-            background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url("data:image/jpeg;base64,{img_b64}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-            """
-        else:
-             # Fallback
-             bg_image_css = "background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);"
-    except:
-        bg_image_css = "background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);"
+    # Load Assets
+    bg_image_path = "assets/boot_mine.jpg"
+    header_image_path = "assets/flag_mountain.jpg"
+    
+    bg_css = ""
+    if os.path.exists(bg_image_path):
+        img_b64 = get_img_as_base64(bg_image_path)
+        bg_css = f"""
+        background-image: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.8)), url("data:image/jpeg;base64,{img_b64}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+        """
+    else:
+        bg_css = "background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);"
 
-    # Custom CSS for "Premium / Tactical" Theme
+    # Custom CSS for "Tactical" Theme
     st.markdown(f"""
     <style>
-    /* Gradient Background */
     .stApp {{
-        {bg_image_css}
+        {bg_css}
     }}
     
-    /* Login Container (Compact & Readable) */
+    /* Container (Dark Tactical) */
     .login-container {{
-        background: rgba(0, 0, 0, 0.75); /* Darker for better contrast */
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        padding: 30px 25px; /* Reduced Padding */
+        background: rgba(20, 20, 30, 0.85); 
+        backdrop-filter: blur(15px);
+        -webkit-backdrop-filter: blur(15px);
+        border: 1px solid rgba(255, 215, 0, 0.3); /* Gold border hint */
+        padding: 0px; 
         border-radius: 12px;
-        box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.6);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
         text-align: center;
         width: 100%;
-        max-width: 380px; /* Slightly Narrower */
+        max-width: 400px;
         margin: auto;
+        overflow: hidden;
     }}
     
-    /* Typography */
+    .login-header-img {{
+        width: 100%;
+        height: 150px;
+        object-fit: cover;
+        border-bottom: 2px solid #b8860b;
+        mask-image: none; /* Remove fade for crisp header in dark mode */
+    }}
+    
+    .login-form-area {{
+        padding: 30px 25px;
+    }}
+    
     .damp-title {{
         color: #e6b800 !important;
         font-family: 'Helvetica Neue', sans-serif;
         font-weight: 800;
-        font-size: 32px; /* Explicit size */
-        letter-spacing: 3px;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.9);
-        margin-bottom: 5px;
-        line-height: 1.2;
+        font-size: 36px; 
+        letter-spacing: 4px;
+        text-shadow: 0 2px 4px rgba(0,0,0,1);
+        margin-top: 10px;
+        line-height: 1.1;
     }}
     .damp-subtitle {{
         color: #f0f0f0 !important;
         font-family: 'Consolas', monospace;
-        font-size: 14px; /* Reduced */
+        font-size: 13px;
         letter-spacing: 1px;
         text-transform: uppercase;
-        margin-bottom: 20px;
-        opacity: 0.9;
+        margin-bottom: 25px;
+        opacity: 0.8;
     }}
     
     .regiment-tag {{
@@ -118,13 +129,11 @@ def login_page():
 
     /* Input Fields */
     .stTextInput > div > div > input {{
-        background-color: rgba(255, 255, 255, 0.95);
+        background-color: rgba(255, 255, 255, 0.9);
         color: #111;
-        border: 2px solid #555;
-        border-radius: 6px;
+        border: 1px solid #555;
+        border-radius: 4px;
         padding: 10px;
-        font-size: 14px;
-        margin-bottom: 5px;
     }}
     
     /* Button */
@@ -135,17 +144,14 @@ def login_page():
         text-transform: uppercase;
         letter-spacing: 1px;
         border: none;
-        border-radius: 6px; /* Match input */
+        width: 100%;
         padding: 12px;
-        font-size: 15px;
-        margin-top: 10px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-        transition: all 0.2s ease;
+        margin-top: 15px;
+        transition: all 0.3s;
     }}
     .stButton > button:hover {{
-        transform: translateY(-1px);
-        box-shadow: 0 6px 15px rgba(0, 0, 0, 0.7);
-        filter: brightness(1.1);
+        filter: brightness(1.2);
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
     }}
     
     /* Footer */
@@ -155,38 +161,59 @@ def login_page():
         margin-top: 25px;
         font-family: monospace;
         text-shadow: 0 1px 2px black;
+        text-align: center;
     }}
     </style>
     """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        # Using div classes instead of h1/h3 to avoid Streamlit anchors
-        st.markdown("""
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
+        # Build HTML for the card
+        header_html = ""
+        if os.path.exists(header_image_path):
+             head_b64 = get_img_as_base64(header_image_path)
+             header_html = f"<img src='data:image/jpeg;base64,{head_b64}' class='login-header-img'>"
+        
+        st.markdown(f"""
         <div class='login-container'>
-            <div class='damp-title'>D A M P</div>
-            <div class='damp-subtitle'>Digitized & Automated Mine Planning</div>
-            <div style="height: 1px; background-color: rgba(255,255,255,0.2); margin: 15px auto; width: 60%;"></div>
-            <div class='regiment-tag'>19 MADRAS</div>
+            {header_html}
+            <div class='login-form-area'>
+                <div class='damp-title'>D A M P</div>
+                <div class='damp-subtitle'>Digitized & Automated Mine Planning</div>
+                <div class='regiment-tag'>19 MADRAS</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Inputs need to be OUTSIDE the HTML block to be interactive Streamlit widgets
+        # but visually we want them 'inside'. 
+        # Trick: The CSS styles above target the stTextInput widgets within this column 
+        # but we can't easily nest them in the HTML div.
+        # We'll just place them below the title block, and the container css might weirdly cut off?
+        # Actually, the 'login-container' closes before the inputs in the code above.
+        # To make it look unified, we might need a different approach or just let inputs be below.
+        # Better: Use st.form or just put inputs 'in' by closing the div AFTER.
+        # Streamlit doesn't allow injecting widgets into custom HTML strings.
+        # So we style the CONTAINER of the column or use a visual trick.
+        # I will make the 'login-container' just the header card, and style the inputs to match?
+        # OR: I can't put widgets in HTML.
+        # I will revert to a simpler "Header Card" + "Input Card" approach, or just styling.
+        
+        # Revised: simple card for title, inputs below.
         
         username = st.text_input("Operator ID", placeholder="Enter Service Number")
         password = st.text_input("Access Code", type="password", placeholder="Enter Password")
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        
         if st.button("INITIALIZE SYSTEM"):
-            # Credential Check
             if username == "CARNATIC@123" and password == "PASSWORD":
                 st.session_state['authenticated'] = True
-                st.success("AUTHENTICATION SUCCESSFUL. LOADING TACTICAL MODULES...")
                 st.rerun()
             else:
-                st.error("ACCESS DENIED. INCORRECT CREDENTIALS.")
+                st.error("ACCESS DENIED")
 
-        st.markdown("<div class='footer-text'>RESTRICTED ACCESS // AUTHORIZED PERSONNEL ONLY</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center; color:rgba(255,255,255,0.4); font-size:10px; margin-top:20px;'>RESTRICTED ACCESS // AUTHORIZED PERSONNEL ONLY</div>", unsafe_allow_html=True)
 
 def main_app():
     # Global Theme CSS
@@ -205,6 +232,55 @@ def main_app():
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 1px solid #ced4da;
+    }
+    
+    /* --- CUSTOM TAB STYLING --- */
+    /* Target the Tab List */
+    [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: #e0e0e0;
+        padding: 8px;
+        border-radius: 12px;
+        margin-bottom: 20px;
+    }
+    
+    /* Target Individual Tabs */
+    [data-baseweb="tab"] {
+        flex-grow: 1; /* Expand to fill space */
+        text-align: center;
+        background-color: #ffffff;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        color: #333;
+        padding: 12px 0px; /* Taller touch target */
+        font-weight: bold;
+        transition: all 0.3s ease;
+    }
+    
+    /* Hover State */
+    [data-baseweb="tab"]:hover {
+        background-color: #f0f0f0;
+        border-color: #999;
+        transform: translateY(-2px);
+    }
+    
+    /* Selected State (The active tab has aria-selected="true" but CSS selection is tricky with generated classes) */
+    /* Streamlit applies specific classes to the selected tab. We can target the one with 'aria-selected="true"' */
+    [data-baseweb="tab"][aria-selected="true"] {
+        background-color: #333 !important; /* Dark Tactical bg */
+        color: #ffd700 !important; /* Gold text */
+        border-color: #ffd700 !important;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    /* Remove the default highlight bar which trails below tabs */
+    [data-baseweb="tab-highlight"] {
+        display: none;
+    }
+    
+    /* Hide the markdown container padding inside tab to center text better */
+    [data-baseweb="tab"] > div {
+        margin: auto;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -341,6 +417,15 @@ def main_app():
                 
                 # Show Trace Info
                 st.caption(f"Generated {len(trace)-1} Legs (B={first_leg_bearing:.0f}, B+20). Max Leg < 150m.")
+                
+                # --- NEW Validation Logic ---
+                # Check against all PREVIOUSLY configured strips
+                existing_traces = [c['trace'] for c in strip_configs]
+                is_valid, msg = validate_strip_constraints(trace, existing_traces, min_gap=60.0)
+                
+                if not is_valid:
+                    st.error(f"⛔ STRIP LAYOUT INVALID: {msg}")
+                # -----------------------------
                 
                 strip_configs.append({
                     "trace": trace,
@@ -748,7 +833,7 @@ def main_app():
                     
                     **2. Pattern Specifications**
                     - **Primary Mine**: {mine_model} ({mine_viz_type})
-                    - **Inter-Mine Spacing**: {meta['mine_spacing']:.2f}m
+                    - **Inter-Mine Spacing**: {res['spacing']:.2f}m
                     - **Strip Spacing**: {meta['row_spacing']}m
                     - **Pattern Type**: {'Mixed (AT + AP)' if meta['mixed'] else 'Uniform'}
                     """)
@@ -833,13 +918,24 @@ def main_app():
                             lm_e, lm_n
                         )
                         
+                        # Cloud-Compatible Rendering
                         try:
-                            abs_path = os.path.abspath(map_path)
-                            webbrowser.open(f'file:///{abs_path}')
-                            st.success(f"🚀 **Map Launched!** Check your browser.")
-                            st.caption(f"File: `{abs_path}`")
+                            with open(map_path, 'r', encoding='utf-8') as f:
+                                map_html = f.read()
+                            
+                            st.success("✅ Map Generated by Tactical Engine")
+                            st.components.v1.html(map_html, height=600, scrolling=False)
+                            
+                            # Option to download for offline use
+                            with open(map_path, "rb") as f:
+                                st.download_button(
+                                    label="💾 Download Map (HTML)",
+                                    data=f,
+                                    file_name="tactical_map.html",
+                                    mime="text/html"
+                                )
                         except Exception as e:
-                            st.error(f"Launch failed. File saved at: {os.path.abspath(map_path)}")
+                            st.error(f"Rendering failed: {e}")
                             
                     else:
                         # Google Earth (KML) Generation
