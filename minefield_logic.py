@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 import os
+import random
 import simplekml
 import plotly.graph_objects as go
 from matplotlib.ticker import MultipleLocator
@@ -494,60 +495,56 @@ def generate_user_defined_trace(start_e, start_n, first_bearing, frontage, strip
     """
     # 1. Geometry Constants
     target_leg_dist = 140.0
-    offset_angle = 20.0
+    offset_angle = 40.0 # Updated from 20 to 40 per user request
     
-    # Average Axis is roughly First_Bearing + (Offset/2) = B + 10
-    # But calculating exact coverage depends on the projection along the "General Front" 
-    # which we assume is determined by the trace itself.
-    # We simply add legs until the total length (or projected length) exceeds frontage.
-    # Let's use strict Euclidian length of the trace for 'Frontage' or Projected? 
-    # Usually Frontage is the straight line distance start-to-end.
-    # We'll approximate: 
-    # Progress per pair (Leg 1 + Leg 2) along the mean axis (B+10):
-    # Pair Distance = 2 * 140 * cos(10 deg). 
-    
-    # Let's just generate legs until sum of lengths >= frontage? 
-    # Or sum of projected lengths?
-    # Let's stick to projected length along the average axis (B + 10).
-    
-    avg_axis_rad = math.radians(first_bearing + (offset_angle / 2))
+    # Average Axis approx calc for progress
+    # We assume 'first_bearing' is Leg 1.
+    # Pattern is roughly B, B+40, B, B+40...
+    # Average Axis = B + 20. 
+    # Projection angle = 20 deg.
     
     # Progress per leg (approx)
-    # Leg 1 (Bearing B) projected on B+10 -> cos(10)
-    # Leg 2 (Bearing B+20) projected on B+10 -> cos(10)
+    # Leg (Bearing B) projected on B+20 -> cos(20)
     prog_per_leg = target_leg_dist * math.cos(math.radians(offset_angle / 2))
+    if prog_per_leg <= 10: prog_per_leg = 10 # Safety
     
     num_legs = math.ceil(frontage / prog_per_leg)
     
-    # Adjust leg distance to fit frontage exactly?
-    # User said "Distance is... less than 150".
-    # Fixed 140m is safe. Let's start with that or scale down if frontage is small.
+    # Adjust leg distance check
     actual_leg_dist = target_leg_dist
-    if frontage < prog_per_leg: # Very short strip
+    if frontage < prog_per_leg: 
          actual_leg_dist = frontage / math.cos(math.radians(offset_angle / 2))
          num_legs = 1
 
     # Custom Labeling based on Strip ID
-    # SSM-1, SSM-2 etc.
     label_ssm = f"SSM-{strip_id}"
     trace_points = [(label_ssm, start_e, start_n)]
     curr_e, curr_n = start_e, start_n
     
-    # Pattern: B, B+20, B, B+20...
-    # Or B, B-20? User said "+- 20". Let's default to Alternating between B and B+20.
-    
-    bearings = [first_bearing, (first_bearing + offset_angle) % 360]
+    # Randomized Zig-Zag
+    # Base pattern: 0, 40, 0, 40...
+    # Jitter: +/- 10 degrees (Randomization)
     
     for i in range(1, num_legs + 1):
         if i == num_legs:
-            # ESM-1
             label = f"ESM-{strip_id}"
         else:
-            # TP-1-1 where Strip=1, TP=1
             label = f"TP-{strip_id}-{i}"
         
-        # Select Bearing (0, 1, 0, 1...)
-        b = bearings[(i-1) % 2]
+        # Determine Base Bearing (Alternating)
+        # Leg 1 (i=1): First Bearing.
+        # Leg 2 (i=2): First + Offset.
+        if (i - 1) % 2 == 0:
+            base_b = first_bearing
+        else:
+            base_b = first_bearing + offset_angle
+            
+        # Add Random Jitter (User: "Randomization... on TP to TP")
+        # Let's say +/- 5 to 10 degrees to keep it clean but random.
+        # If we overlap too much it might look like a mess.
+        # Let's use uniform(-10, 10)
+        jitter = random.uniform(-10, 10)
+        b = (base_b + jitter) % 360
         
         # Calc
         curr_e, curr_n = calculate_coords(curr_e, curr_n, b, actual_leg_dist)
@@ -1548,3 +1545,87 @@ def generate_folium_map(all_mines, survey_points, ref_lat, ref_lon, ref_e, ref_n
     out_file = "minefield_map.html"
     m.save(out_file)
     return out_file
+
+# --- Validation Logic ---
+
+def _distance_point_segment(px, py, x1, y1, x2, y2):
+    """Calculates the minimum distance from point (px, py) to segment (x1, y1)-(x2, y2)."""
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return math.hypot(px - x1, py - y1)
+
+    # Project point onto line (parameter t)
+    t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+
+    # Clamp t to segment [0, 1]
+    t = max(0, min(1, t))
+
+    nearest_x = x1 + t * dx
+    nearest_y = y1 + t * dy
+
+    return math.hypot(px - nearest_x, py - nearest_y)
+
+def _segments_intersect(p1, p2, p3, p4):
+    """
+    Checks if segment p1-p2 intersects p3-p4.
+    p1, p2, p3, p4 are (x, y) tuples.
+    Returns True if valid intersection (excluding endpoints usually, but strict for crossing).
+    """
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+
+    # CCW check
+    def ccw(A, B, C):
+        return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+    # Standard intersection check
+    return ccw((x1,y1), (x3,y3), (x4,y4)) != ccw((x2,y2), (x3,y3), (x4,y4)) and \
+           ccw((x1,y1), (x2,y2), (x3,y3)) != ccw((x1,y1), (x2,y2), (x4,y4))
+
+def _min_dist_segments(p1, p2, p3, p4):
+    """Min distance between two segments p1-p2 and p3-p4."""
+    # Check intersection first (dist = 0)
+    if _segments_intersect(p1, p2, p3, p4):
+        return 0.0
+
+    # Dist is min of (endpoints to other segment)
+    d1 = _distance_point_segment(p1[0], p1[1], p3[0], p3[1], p4[0], p4[1])
+    d2 = _distance_point_segment(p2[0], p2[1], p3[0], p3[1], p4[0], p4[1])
+    d3 = _distance_point_segment(p3[0], p3[1], p1[0], p1[1], p2[0], p2[1])
+    d4 = _distance_point_segment(p4[0], p4[1], p1[0], p1[1], p2[0], p2[1])
+
+    return min(d1, d2, d3, d4)
+
+def validate_strip_constraints(new_trace: list, existing_traces: list, min_gap: float = 60.0):
+    """
+    Validates a new strip trace against existing ones.
+    new_trace: List of (label, x, y) tuples.
+    existing_traces: List of List of (label, x, y) tuples.
+    Returns: (bool_is_valid, error_message)
+    """
+    if not existing_traces:
+        return True, ""
+
+    # Check each segment of new trace against all segments of all existing traces
+    for i in range(len(new_trace) - 1):
+        p1 = (new_trace[i][1], new_trace[i][2])
+        p2 = (new_trace[i+1][1], new_trace[i+1][2])
+
+        for existing in existing_traces:
+            for j in range(len(existing) - 1):
+                q1 = (existing[j][1], existing[j][2])
+                q2 = (existing[j+1][1], existing[j+1][2])
+
+                # 1. Intersection Check
+                if _segments_intersect(p1, p2, q1, q2):
+                   return False, f"Intersection detected between New Strip Segment {i+1} and Existing Strip Segment {j+1}."
+
+                # 2. Min Distance Check
+                dist = _min_dist_segments(p1, p2, q1, q2)
+                if dist < min_gap:
+                    return False, f"Proximity Violation: The distance between the strips is {dist:.1f} meters, which is less than the safe minimum of {min_gap} meters."
+    
+    return True, ""
